@@ -1,0 +1,21 @@
+Stream.py
+import socket
+
+s = socket.socket (socket.AF_INET, socket.SOCK_STREAM )
+
+ipaddr = '127.0.0.1' #loopback address for demo 
+port = 54321 #port you are shooting for. This is demo port
+
+s.connect((ipaddr, port)) #establishes direct comm with remote host that you specify with ipad$
+
+#To send a string as a bytes-like object, add the prefix b to the string. \n is used to go to $
+
+s.send(b'Hello\n')
+
+#It is recommended that the buffersize used to recvfrom is a power of 2 and not a very large n$
+response, conn = s.recvfrom(1024)
+
+#in order to receive a message that is sent as a bytes-like object you must decode into utf-8 $
+print(response.decode())
+
+s.close()

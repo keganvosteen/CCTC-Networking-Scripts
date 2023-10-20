@@ -1,0 +1,17 @@
+scan.sh
+#!/bin/bash
+
+echo "enter the network address (first 3 octects)(ex. xxx.xxx.xxx): "
+read net
+echo "enter the starting ip address (ex. 1): "
+read start
+echo "enter the ending ip address (ex. 255): "
+read end
+echo "enter the ports you wish to scan (ex. 20-25 80): "
+read port
+
+for ((i=$start; $i<=$end; i++))
+        do
+                nc -nvzw1 $net.$i $port 2>&1 | grep open
+                echo $net.$i "scan complete"
+        done

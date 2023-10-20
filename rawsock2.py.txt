@@ -1,0 +1,123 @@
+import socket, sys, binascii, array
+
+from struct import *
+
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+except socket.error as msg:
+    print('Socket creation failed! \nError Code - ' + str(msg))
+    sys.exit()
+packet = ''
+
+source_ip = '8.8.8.8'
+dest_ip = '172.16.40.10'
+
+"""
+IP header info in decimal. You need to consider the full field size and the decimal therein. 
+The ip_ihl_ver field for example is actually read as 2 nibbles, however for ease of coding, 
+we're going to just use the decimal value of the entire byte, assuming that the packet is not using IP options.
+"""
+
+ip_ver_ihl = 69  # Decimal
+ip_tos = 0
+ip_len = 0       # kernel will fill this in
+ip_id = 2020
+ip_frag = 0
+ip_ttl = 64
+ip_proto = 6	#protocol 6 for TCP
+ip_check = 0     # kernel will fill the correct checksum
+ip_saddr = socket.inet_aton(source_ip)
+ip_daddr = socket.inet_aton(dest_ip)
+
+"""
+This portion creates the header by packing the above variables into a structure. The ! in the string means network order, while the code following specifies how to store the info. 
+These "?"'s should indicate the size of the field that the information contained in the corresponding variables should be stored in. 
+The "?"'s should be replaces with B, H or 4s. B=Byte, H=Half-word, 4s=four bytes (a str is a byte long)
+"""
+
+ip_header = pack('!BBHHHBBH4s4s' , ip_ver_ihl, ip_tos, ip_len, ip_id, ip_frag, ip_ttl, ip_proto, ip_check, ip_saddr, ip_daddr)
+
+"""
+TCP header fields in decimal. Create your fields in a similar manner as in the IP header. 
+Replace the TCP_VARs with the appropriate header field and replace the "?" with the value for that field. 
+The following tcp header fields have been provided: tcp_window and tcp_check 
+Be sure to either combine the data offset and reserve fields into 1 byte, or combine them afterwards.
+"""
+
+TCP_src_prt = 54321
+TCP_dst_prt = 1234
+TCP_Seq_num = 90210
+TCP_Ack_Num = 30905
+TCP_data_offset = 5	#data offset specifying the size of the tcp header * 4 which is 20 # The value of this field is decimal for '0x50' which is the offset of 5 * 4 words = 20 and 0 for the reserve bit
+TCP_reserve = 0		# the 3 reserve bits + ns flag in reserve field
+TCP_flags = 0		# TCP flags field before the bits are turned on
+tcp_window = 5620  	# maximum allowed window size
+tcp_check = 0  		# We will define the calculation for this further down
+tcp_urg_pt = 0 		#Urgent pointer. Only used if the urgent flag is set, else zero. It points to the end of the payload data that should be sent with priority.
+
+tcp_off_res = (TCP_data_offset << 4) + TCP_reserve
+
+#tcp flags by bit starting from right to left
+tcp_fin = 0
+tcp_syn = 1
+tcp_rst = 0
+tcp_psh = 0
+tcp_ack = 0
+tcp_urg = 0
+tcp_ece = 0
+tcp_cwr = 0
+
+#Combine the tcp flags by left shifting the bit locations and adding the bits together
+tcp_flags = tcp_fin + (tcp_syn << 1) + (tcp_rst << 2) + (tcp_psh << 3) + (tcp_ack << 4) + (tcp_urg << 5) + (tcp_ece << 6) + (tcp_cwr << 7)
+
+"""
+Pack the tcp header like you did with the IP header. 
+Replace capitalized VAR names with what you used in the TCP header feilds, tcp_check and tcp_window has been provided. 
+The "?"'s should be replaced with B, H or L. (B = Byte, H = Half-word, L = Word)
+"""
+tcp_header = pack('!HHLLBBHHH', TCP_src_prt, TCP_dst_prt, TCP_Seq_num, TCP_Ack_Num, tcp_off_res, TCP_flags, tcp_window, tcp_check, tcp_urg_pt)
+
+user_data =binascii.hexlify(b'Vosteen')
+
+# After you create the tcp header, create pseudo header fields for the tcp checksum
+source_address = socket.inet_aton( source_ip )
+dest_address = socket.inet_aton(dest_ip)
+reserved = 0
+protocol = socket.IPPROTO_TCP
+tcp_length = len(tcp_header) + len(user_data)
+
+"""
+Pack the pseudoheader. 
+The "?"'s should be replaced with B, H or 4s. B=Byte, H=Half-word, 4s=four byte string
+"""
+pseudo_header = pack('!4s4sBBH', source_address, dest_address, reserved, protocol, tcp_length)
+
+"""
+Combine the entire message with the pseudo header by adding the variables for:
+pseudo header, tcp header, and your user data
+"""
+pseudo_header = pseudo_header + tcp_header + user_data
+
+# checksum functions needed for calculation of tcp checksum (This has been done for you)
+
+def checksum(data):
+        if len(data) % 2 != 0:
+                data += b'\0'
+        res = sum(array.array("H", data))
+        res = (res >> 16) + (res & 0xffff)
+        res += res >> 16
+        return (~res) & 0xffff
+
+# Recombine the tcp_check variable with the checksum definition calling the compiled pseudoheader
+tcp_check = checksum(pseudo_header)
+
+
+# Re-pack the tcp header to fill in the correct checksum - remember checksum is NOT in network byte order
+tcp_header = pack('!HHLLBBH',TCP_src_prt, TCP_dst_prt, TCP_Seq_num, TCP_Ack_Num, tcp_off_res, TCP_flags, tcp_window) + pack('H', tcp_check) + pack('!H' , tcp_urg_pt)
+
+# final packet creation (combine the ip and tcp header with your user data)
+packet = ip_header + tcp_header + user_data
+
+
+# Sendto the target with the packet fully assembled (change OBJECT to the correct socket object)
+s.sendto(packet, (dest_ip, 0))
